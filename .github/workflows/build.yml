@@ -1,0 +1,121 @@
+name: Build Zed Windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type'
+        required: true
+        type: choice
+        options:
+          - release
+          - preview
+          - nightly
+      version:
+        description: 'Version (optional, will use latest if empty)'
+        required: false
+        type: string
+
+jobs:
+  build:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        backend: [vulkan, opengl]
+        include:
+          - backend: vulkan
+            artifact_name: zed-release
+            rustflags: ""
+          - backend: opengl
+            artifact_name: zed-release-opengl
+            rustflags: "--cfg gles"
+
+    steps:
+      - name: Enable long paths
+        shell: powershell
+        run: |
+          New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" `
+            -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
+          git config --system core.longpaths true
+
+      - name: Checkout repository
+        uses: actions/checkout@v4.2.2
+        with:
+          repository: zed-industries/zed
+          ref: ${{ github.event.inputs.version || (
+            github.event.inputs.build_type == 'release' && 'refs/tags/v*[!-]*' ||
+            github.event.inputs.build_type == 'preview' && 'refs/tags/v*-pre' ||
+            'main'
+          ) }}
+
+      - name: Install rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          override: true
+          target: wasm32-wasip1
+
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2.7.5
+        with:
+          key: ${{ matrix.backend }}
+
+      - name: Build release
+        env:
+          RUSTFLAGS: ${{ matrix.rustflags }}
+        run: cargo build --release
+
+      - name: Archive build
+        uses: actions/upload-artifact@v4.4.3
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: target/release/zed.exe
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4.1.8
+        with:
+          path: artifacts
+
+      - name: Get version
+        id: version
+        run: |
+          if [[ "${{ github.event.inputs.build_type }}" == "nightly" ]]; then
+            echo "VERSION=$(date +'%Y%m%d')" >> $GITHUB_ENV
+          else
+            if [[ -n "${{ github.event.inputs.version }}" ]]; then
+              echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_ENV
+            else
+              if [[ "${{ github.event.inputs.build_type }}" == "preview" ]]; then
+                VERSION=$(git describe --tags --match "v*-pre" --abbrev=0)
+              else
+                VERSION=$(git describe --tags --match "v*[!-]*" --abbrev=0)
+              fi
+              echo "VERSION=${VERSION#v}" >> $GITHUB_ENV
+            fi
+          fi
+
+      - name: Create release directories and zip
+        run: |
+          mkdir -p zed-release zed-release-opengl
+          mv artifacts/zed-release/zed.exe zed-release/
+          mv artifacts/zed-release-opengl/zed.exe zed-release-opengl/
+          zip -r zed-windows-${{ env.VERSION }}.zip zed-release/*
+          zip -r zed-windows-opengl-${{ env.VERSION }}.zip zed-release-opengl/*
+
+      - name: Upload release build artifacts to GitHub Release
+        uses: softprops/action-gh-release@v2.1.0
+        with:
+          name: ${{ env.VERSION }}
+          tag_name: ${{ env.VERSION }}
+          draft: false
+          make_latest: ${{ github.event.inputs.build_type != 'nightly' }}
+          files: |
+            zed-windows-${{ env.VERSION }}.zip
+            zed-windows-opengl-${{ env.VERSION }}.zip
