@@ -12,7 +12,7 @@ on:
           - preview
           - nightly
       version:
-        description: 'Version (optional, will use latest if empty)'
+        description: 'Version without v prefix (e.g. 0.163.2 for release, 0.164.0 for preview). Leave empty to use latest'
         required: false
         type: string
 
@@ -42,11 +42,36 @@ jobs:
         uses: actions/checkout@v4.2.2
         with:
           repository: zed-industries/zed
-          ref: ${{ github.event.inputs.version || (
-            github.event.inputs.build_type == 'release' && 'refs/tags/v*[!-]*' ||
-            github.event.inputs.build_type == 'preview' && 'refs/tags/v*-pre' ||
-            'main'
-          ) }}
+          fetch-depth: 0
+
+      - name: Set git ref
+        id: set_ref
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "ref=v${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            echo "version=v${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            case "${{ github.event.inputs.build_type }}" in
+              "release")
+                TAG=$(git tag --sort=-creatordate | grep -m1 "v[0-9.]*$")
+                ;;
+              "preview")
+                TAG=$(git tag --sort=-creatordate | grep -m1 "v.*-pre")
+                ;;
+              "nightly")
+                TAG="main"
+                ;;
+            esac
+            echo "ref=$TAG" >> $GITHUB_OUTPUT
+            echo "version=${TAG}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Checkout specific ref
+        uses: actions/checkout@v4.2.2
+        with:
+          repository: zed-industries/zed
+          ref: ${{ steps.set_ref.outputs.ref }}
 
       - name: Install rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -89,16 +114,7 @@ jobs:
           if [[ "${{ github.event.inputs.build_type }}" == "nightly" ]]; then
             echo "VERSION=$(date +'%Y%m%d')" >> $GITHUB_ENV
           else
-            if [[ -n "${{ github.event.inputs.version }}" ]]; then
-              echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_ENV
-            else
-              if [[ "${{ github.event.inputs.build_type }}" == "preview" ]]; then
-                VERSION=$(git describe --tags --match "v*-pre" --abbrev=0)
-              else
-                VERSION=$(git describe --tags --match "v*[!-]*" --abbrev=0)
-              fi
-              echo "VERSION=${VERSION#v}" >> $GITHUB_ENV
-            fi
+            echo "VERSION=${{ steps.set_ref.outputs.version }}" >> $GITHUB_ENV
           fi
 
       - name: Create release directories and zip
