@@ -18,6 +18,8 @@ on:
 
 jobs:
   build:
+    outputs:
+      version: ${{ steps.set_ref.outputs.version }}
     runs-on: windows-latest
     strategy:
       matrix:
@@ -49,8 +51,12 @@ jobs:
         shell: bash
         run: |
           if [ -n "${{ github.event.inputs.version }}" ]; then
-            echo "ref=v${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
-            echo "version=v${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            VERSION="v${{ github.event.inputs.version }}"
+            if [ "${{ github.event.inputs.build_type }}" = "preview" ]; then
+              VERSION="${VERSION}-pre"
+            fi
+            echo "ref=$VERSION" >> $GITHUB_OUTPUT
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
           else
             case "${{ github.event.inputs.build_type }}" in
               "release")
@@ -114,7 +120,7 @@ jobs:
           if [[ "${{ github.event.inputs.build_type }}" == "nightly" ]]; then
             echo "VERSION=$(date +'%Y%m%d')" >> $GITHUB_ENV
           else
-            echo "VERSION=${{ steps.set_ref.outputs.version }}" >> $GITHUB_ENV
+            echo "VERSION=${{ needs.build.outputs.version }}" >> $GITHUB_ENV
           fi
 
       - name: Create release directories and zip
@@ -128,7 +134,7 @@ jobs:
       - name: Upload release build artifacts to GitHub Release
         uses: softprops/action-gh-release@v2.1.0
         with:
-          name: ${{ env.VERSION }}
+          name: ${{ github.event.inputs.build_type == 'nightly' && format('Nightly {0}', env.VERSION) || env.VERSION }}
           tag_name: ${{ env.VERSION }}
           draft: false
           make_latest: ${{ github.event.inputs.build_type != 'nightly' }}
