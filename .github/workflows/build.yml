@@ -60,10 +60,10 @@ jobs:
           else
             case "${{ github.event.inputs.build_type }}" in
               "release")
-                TAG=$(git tag --sort=-creatordate | grep -m1 "v[0-9\.]*$")
+                TAG=$(git tag --sort=-creatordate | grep -m1 "v[0-9\.]\+[0-9]$")
                 ;;
               "preview")
-                TAG=$(git tag --sort=-creatordate | grep -m1 "v[0-9\.]*-pre$")
+                TAG=$(git tag --sort=-creatordate | grep -m1 "v[0-9\.]\+[0-9]-pre$")
                 ;;
               "nightly")
                 TAG="main"
