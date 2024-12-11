@@ -8,11 +8,11 @@ on:
         required: true
         type: choice
         options:
-          - release
+          - stable
           - preview
           - nightly
       version:
-        description: 'Version without v prefix (e.g. 0.163.2 for release, 0.164.0 for preview). Leave empty to use latest'
+        description: 'Version without v prefix (e.g. 0.163.2 for stable, 0.164.0 for preview). Leave empty to use latest'
         required: false
         type: string
 
@@ -59,7 +59,7 @@ jobs:
             echo "version=$VERSION" >> $GITHUB_OUTPUT
           else
             case "${{ github.event.inputs.build_type }}" in
-              "release")
+              "stable")
                 TAG=$(git tag --sort=-creatordate | grep -m1 "v[0-9\.]\+[0-9]$")
                 ;;
               "preview")
@@ -125,11 +125,12 @@ jobs:
 
       - name: Create release directories and zip
         run: |
-          mkdir -p zed-release zed-release-opengl
-          mv artifacts/zed-release/zed.exe zed-release/
-          mv artifacts/zed-release-opengl/zed.exe zed-release-opengl/
-          zip -r zed-windows-${{ env.VERSION }}.zip zed-release/*
-          zip -r zed-windows-opengl-${{ env.VERSION }}.zip zed-release-opengl/*
+          mv artifacts/zed-release/zed.exe ./zed.exe
+          zip zed-windows-${{ env.VERSION }}.zip zed.exe
+          rm zed.exe
+          mv artifacts/zed-release-opengl/zed.exe ./zed.exe
+          zip zed-windows-opengl-${{ env.VERSION }}.zip zed.exe
+          rm zed.exe
 
       - name: Upload release build artifacts to GitHub Release
         uses: softprops/action-gh-release@v2.1.0
@@ -137,6 +138,7 @@ jobs:
           name: ${{ github.event.inputs.build_type == 'nightly' && format('Nightly {0}', env.VERSION) || env.VERSION }}
           tag_name: ${{ env.VERSION }}
           draft: false
+          prerelease: ${{ github.event.inputs.build_type != 'stable' }}
           make_latest: ${{ github.event.inputs.build_type != 'nightly' }}
           files: |
             zed-windows-${{ env.VERSION }}.zip
